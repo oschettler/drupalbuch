@@ -1,0 +1,7 @@
+; $Id$
+name = Vote up
+description = Adds an up voting widget to selected content types.
+dependencies[] = votingapi
+core = 6.x
+package = Voting
+

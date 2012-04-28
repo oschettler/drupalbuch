@@ -1,0 +1,5 @@
+; $Id$
+name = Feednode
+description = A node which is associated with an aggregator feed
+dependencies[] = aggregator
+core = 6.x

@@ -1,0 +1,175 @@
+<?php
+// $Id$
+
+/**
+ * @file
+ * feednode is a module that provides nodes that represent aggregator feeds.
+ * For users to see feed content, "access to feeds" needs to be enabled
+ */
+
+/**
+ * Implementation of hook_help()
+ * Display help text for the feednode module 
+ */
+function feednode_help($section) {
+  switch ($section) {
+    case 'admin/help#feednode':
+      return '<p>' . t('Create and manage nodes representing aggregator feeds.') . '</p>';
+    case 'admin/modules#description':
+      return t('Allows users to create and manage feeds.');
+    case 'node/add#feednode':
+      return t('Create an aggregator feed.');
+  }
+}
+
+/**
+ * Feednode custom nodetype
+ */
+function feednode_node_info() {
+  return array('feednode' => array(
+    'name' => t('Feednode'),
+    'module' => 'feednode',
+    'description' => t('Nodes zur Kapselung von Aggregator Feeds.'),
+  ));
+}
+
+/**
+ * Implementation of hook_perm().
+ */
+function feednode_perm() {
+  return array('create feednode', 'edit own feednodes');
+}
+
+/**
+ * Implementation of hook_access().
+ */
+function feednode_access($op, $node) {
+  global $user;
+
+  if ($op == 'create') {
+    // Only users with permission to do so may create this node type.
+    return user_access('create feednode');
+  }
+
+  // Users who create a node may edit or delete it later, assuming they have the
+  // necessary permissions.
+  if ($op == 'update' || $op == 'delete') {
+    if (user_access('edit own feednodes') && ($user->uid == $node->uid)) {
+      return TRUE;
+    }
+  }
+} 
+
+/**
+ * Implementation of hook_form()
+ * Display the feed form
+ */
+function feednode_form(&$node) {
+  require_once drupal_get_path('module', 'aggregator') . '/aggregator.admin.inc';
+  
+  $form = drupal_retrieve_form('aggregator_form_feed', $form_state);
+  
+  //var_dump("FORM", $node);
+  $form['title']['#default_value'] = $node->title;
+  $form['url']['#default_value'] = $node->url;
+  $form['refresh']['#default_value'] = $node->refresh;
+  $form['fid'] = array('#type' => 'value', '#value' => $node->fid);
+  unset($form['submit']);
+
+  return $form;
+}
+
+/**
+ * Implemention of hook_load
+ * @param node object to load additional information for
+ * @return object with additional fields from feed
+ */
+function feednode_load($node) {
+  $info = db_fetch_object(db_query(
+    'SELECT fid FROM {feednode} WHERE nid = %d', $node->nid));
+  $feed = aggregator_feed_load($info->fid);
+  //var_dump("LOAD", $feed);
+  return $feed;
+}
+
+function _feednode_save($node) {
+  //var_dump("SAVE", $node);
+  if (!$node->fid) {
+    // check if a feed with this URL is already in the system
+    $feed = db_fetch_object(db_query(
+      "SELECT fid FROM {aggregator_feed} WHERE url = '%s'", $node->url));
+    if ($feed) {
+      $node->fid = $feed->fid;
+    }
+  }
+  aggregator_save_feed(get_object_vars($node));
+
+  if (!isset($node->fid)) {
+    $node->fid = db_last_insert_id('aggregator_feed', 'fid');
+  }
+  db_query(
+    'REPLACE INTO {feednode} (nid,fid) VALUES (%d,%d)', $node->nid, $node->fid);
+
+  aggregator_refresh(aggregator_feed_load($node->fid));
+}
+
+/**
+ * Implementation of hook_insert
+ * @param node object
+ */
+function feednode_insert($node) {
+  _feednode_save($node);
+}
+
+/**
+ * Implementation of hook_update
+ * @param node object
+ */
+function feednode_update($node) {
+  _feednode_save($node);
+}
+
+/**
+ * Implementation of hook_delete
+ * @param node object
+ */
+function feednode_delete($node) {
+  aggregator_save_feed(array('fid' => $node->fid));
+  db_query('DELETE FROM {feednode} WHERE nid=%d', $node->nid);
+}
+
+/**
+ * Implementation of hook_view, add our node specific information
+ * @param node object to display
+ * @param boolean is this a teaser or full node?
+ * @param boolean is this displaying on its own page
+ */
+function feednode_view($node, $teaser = FALSE, $page = FALSE) {
+  //var_dump("VIEW", $node);
+  $node = node_prepare($node, $teaser);
+
+  $block = aggregator_block('view', 'feed-' . $node->fid);
+  $node->content['items'] = array(
+    '#value' => $block['content'],
+    '#weight' => 1,
+  );
+
+  return $node;
+}
+
+/**
+ * Implementation of hook_user
+ * Associate an authorqueue with a user for display
+ */
+function feednode_user($op, &$edit, &$account, $category = NULL) {
+  switch ($op) {
+    case 'view':
+      $subqueues = nodequeue_load_subqueues_by_reference(array(
+        1 => array($account->uid)));
+      $subqueue = array_shift($subqueues);
+      
+      array_unshift($account->content, 
+        array('#value' => l('Queue bearbeiten»', 'admin/content/nodequeue/1/view/' . $subqueue->sqid)),
+        array('#value' => nodequeue_nodes($subqueue->sqid, /*backward*/TRUE, /*teaser*/TRUE)));
+  }
+}

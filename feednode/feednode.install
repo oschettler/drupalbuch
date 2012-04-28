@@ -1,0 +1,39 @@
+<?php
+
+/**
+ * Implementation of hook_schema()
+ */
+function feednode_schema() {
+  $schema['feednode'] = array(
+    'description' => t('Associate a feed with a node'),
+    'fields' => array(
+      'nid' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'description' => t('The node to associate a feed with'),
+      ),
+      'fid' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'description' => t('The feed to associate to'),
+      )
+    ),
+    'primary key' => array('nid', 'fid'),
+  );
+  return $schema;
+}
+
+/**
+ * Implementation of hook_install()
+ */
+function feednode_install() {
+  drupal_install_schema('feednode');
+  //NOT NEEDED  db_query("UPDATE {system} SET weight = 1 WHERE name = 'feednode'");  
+}
+
+/**
+ * Implementation of hook_uninstall()
+ */
+function feednode_uninstall() {
+  drupal_uninstall_schema('feednode');
+}

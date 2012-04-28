@@ -1,4 +1,4 @@
-drupalbuch
+Beispiele aus dem Buch "Praxiswissen Drupal 6"
 ==========
 
-Code-Beispiele aus unserem Drupalbuch
+http://www.oreilly.de/catalog/drupalbasger/index.html

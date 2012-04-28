@@ -1,0 +1,218 @@
+<?php
+// $Id$
+/**
+ * @file
+ * vupp is a module that adds a widget for votes on nodes.
+ * It depends on votingapi.
+ */
+
+/**
+ * Implementation of hook_help().
+ */
+function vupp_help($path, $arg) {
+  if ($path == 'admin/help#vupp') {
+    return t('<p>Adds a voting widget to selected content types.</p>');
+  }
+}
+
+/**
+ * Implementation of hook_perm().
+ */
+function vupp_perm() {
+  return array('view vupp', 'use vupp', 'access vupp statistics', 'administer vupps');
+}
+
+/**
+ * Menu callback
+ */
+function vupp_access($node) {
+  return user_access('access vupp statistics') 
+    && in_array($node->type, variable_get('vupp_node_types', array()), TRUE);
+}
+
+/**
+ * Implementation of hook_init()
+ */
+function vupp_init() {
+  drupal_add_css(drupal_get_path('module', 'vupp') . '/vupp.css');
+  drupal_add_js(drupal_get_path('module', 'vupp') . '/vupp.js');
+}
+
+/**
+ * Implementation of hook_menu().
+ */
+function vupp_menu() {
+  $items = array();
+
+  $items['admin/settings/vupp'] = array(
+    'title' => 'Vote on content',
+    'description' => t('Configure the voting system.'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('vupp_admin_settings'),
+    'access callback' => 'user_access',
+    'access arguments' => array('administer site configuration'),
+    'type' => MENU_NORMAL_ITEM
+  );
+  $items['vupp'] = array(
+    'title' => 'Vote on content',
+    'page callback' => 'vupp_vote',
+    'access arguments' => array('use vupp'),
+    'type' => MENU_CALLBACK
+  );
+  $items['node/%node/vupps'] = array(
+    'title' => 'Votings',
+    'page callback' => 'vupp_tracker',
+    'page arguments' => array(1),
+    'access callback' => 'vupp_access',
+    'access arguments' => array(1),
+    'weight' => 5,
+    'type' => MENU_LOCAL_TASK
+  );
+
+  return $items;
+}
+
+/**
+ * Menu callback
+ */
+function vupp_admin_settings() {
+  $form['vupp_node_types'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Node types'),
+    '#description' => t('Set the node types you want to activate votings on.'),
+    '#collapsible' => TRUE,
+  );
+  $form['vupp_node_types']['vupp_node_types'] = array(
+    '#type' => 'checkboxes',
+    '#title' => t('Types'),
+    '#default_value' => variable_get('vupp_node_types', array()),
+    '#options' => node_get_types('names'),
+  );
+  return system_settings_form($form);
+}
+
+/**
+ * A voting GET handler with AJAX support
+ */
+function vupp_vote($type, $cid) {
+  if (!is_numeric($cid) || !user_access('use vupp')) return;
+
+  $votes = array(array(
+    'content_type' => $type, 
+    'content_id' => $cid, 
+    'value_type' => 'points',
+    'value' => 1,
+    'tag' => variable_get('vupp_tag', 'vote'),
+  ));
+  
+  // Do the voting via voting api.
+  votingapi_set_votes($votes);
+  echo theme("vupp_points", $cid, $type);
+  exit();
+}
+
+/*
+ * Menu callback; display all votes for a node.
+ */
+function vupp_tracker($node) {
+  $header = array(
+    array('data' => t('User')),
+    array('data' => t('Date'))
+  );
+  $votings = votingapi_select_votes(array(
+    'content_type' => $node->type, 
+    'content_id' => $node->nid,
+    'tag' => variable_get('vupp_tag', 'vote'),
+  ));
+  foreach ($votings as $voting) {
+    $account = user_load(array('uid' => $voting['uid'], 'status' => 1));
+    $rows[] = array(
+      theme('username', $account),
+      array('data' => format_date($voting['timestamp'], 'small'), 'class' => 'nowrap')
+    );
+  }
+  drupal_set_title(check_plain($node->title));
+  $output = theme('table', $header, $rows);
+  $output .= theme('pager', NULL, 30);
+
+  return $output;
+}
+
+/**
+ * Implementation of hook_nodeapi().
+ * Display the voting widget in nodes.
+ */
+function vupp_nodeapi(&$node, $op, $teaser = NULL, $page = NULL) {
+  if ($op != 'view') return;
+  $node_type = in_array($node->type, 
+    variable_get('vupp_node_types', array()), TRUE);
+  if ($node_type) {
+    $node->content['vupp'] = array(
+      '#value' => theme("vupp_widget", $node->nid, $node->type),
+      '#weight' => -10,
+    );
+  }
+}
+
+function theme_vupp_widget($cid, $type) {
+  global $user;
+
+  if (!user_access('view vupp')) return;
+  $output = '<div class="vupp-widget">';
+  $output .= theme('vupp_points', $cid, $type);
+  if (user_access('use vupp')) {
+    $user_vote = votingapi_select_votes(array(
+      'content_type' => $type, 
+      'content_id' => $cid,
+      'uid' => $user->uid, 
+      'tag' => variable_get('vupp_tag', 'vote'),
+    ));
+    //D var_dump($user_vote);
+    $class = 'vupp';
+    if (!$user_vote) {
+      $class .= ' active';
+    }
+
+    $output .= l('', "vupp/$type/$cid", array('attributes' => array(
+          'class' => $class,
+          'id' => 'vupp-' . $cid, 
+          'title' => t('Vote!'))));
+  }
+  else {
+    $output .= '  <a class="vupp" title="' . t('You may not vote.') . '"></a>';
+  }
+  return $output . '</div>';
+}
+
+function theme_vupp_points($cid, $type) {
+/*
+  $vote_result = votingapi_get_voting_result($type, $cid, 'points', 
+    variable_get('vupp_tag', 'vote'), 'sum');
+*/
+  $vote_result = votingapi_select_single_result_value(array(
+    'content_type' => $type, 
+    'content_id' => $cid, 
+    'value_type' => 'points',
+    'function' => 'sum',
+    'tag' => variable_get('vupp_tag', 'vote'),
+  ));
+  $output = '<div id="vupp-points-'. $cid .'" class="vupp-points">';
+  $output .= $vote_result ? $vote_result : 0; // print_r($vote_result, TRUE);
+  $output .= '</div>';
+
+  return $output;
+}
+
+function vupp_theme() {
+  $theme = array();
+
+  $theme['vupp_widget'] = array(
+    'arguments' => array('cid' => 0, 'type' => 'node'),
+  );
+
+  $theme['vupp_points'] = array(
+    'arguments' => array('cid' => 0, 'type' => 'node'),
+  );
+
+  return $theme;
+}
