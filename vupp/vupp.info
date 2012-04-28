@@ -2,6 +2,7 @@
 name = Vote up (Vupp)
 description = Adds an up voting widget to selected content types.
 package = Drupalbuch
+files[] = vupp.module
 dependencies[] = votingapi
-core = 6.x
+core = 7.x
 
