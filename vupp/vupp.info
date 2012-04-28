@@ -1,7 +1,7 @@
 ; $Id$
-name = Vote up
+name = Vote up (Vupp)
 description = Adds an up voting widget to selected content types.
+package = Drupalbuch
 dependencies[] = votingapi
 core = 6.x
-package = Voting
 

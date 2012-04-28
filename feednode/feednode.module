@@ -170,6 +170,6 @@ function feednode_user($op, &$edit, &$account, $category = NULL) {
       
       array_unshift($account->content, 
         array('#value' => l('Queue bearbeiten»', 'admin/content/nodequeue/1/view/' . $subqueue->sqid)),
-        array('#value' => nodequeue_nodes($subqueue->sqid, /*backward*/TRUE, /*teaser*/TRUE)));
+        array('#value' => nodequeue_view_nodes($subqueue->sqid, /*backward*/TRUE, /*teaser*/TRUE)));
   }
 }
