@@ -1,7 +1,6 @@
-; $Id$
 name = Feednode
 description = A node which is associated with an aggregator feed
 package = Drupalbuch
 dependencies[] = aggregator
 dependencies[] = nodequeue
-core = 6.x
+core = 7.x

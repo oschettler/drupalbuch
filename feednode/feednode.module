@@ -1,6 +1,4 @@
 <?php
-// $Id$
-
 /**
  * @file
  * feednode is a module that provides nodes that represent aggregator feeds.
@@ -28,20 +26,27 @@ function feednode_help($section) {
 function feednode_node_info() {
   return array('feednode' => array(
     'name' => t('Feednode'),
-    'module' => 'feednode',
+    'base' => 'feednode',
     'description' => t('Nodes zur Kapselung von Aggregator Feeds.'),
   ));
 }
 
 /**
- * Implementation of hook_perm().
+ * Implements hook_permission().
  */
-function feednode_perm() {
-  return array('create feednode', 'edit own feednodes');
+function feednode_permission() {
+  return array(
+    'create feednode' => array(
+      'title' => t('Create feednodes'),
+    ), 
+    'edit own feednodes' => array(
+      'title' => t('Edit own feednodes'),
+    )
+  );
 }
 
 /**
- * Implementation of hook_access().
+ * Implements hook_access().
  */
 function feednode_access($op, $node) {
   global $user;
@@ -61,19 +66,19 @@ function feednode_access($op, $node) {
 } 
 
 /**
- * Implementation of hook_form()
+ * Implements hook_form()
  * Display the feed form
  */
-function feednode_form(&$node) {
+function feednode_form($node, &$form_state) {
   require_once drupal_get_path('module', 'aggregator') . '/aggregator.admin.inc';
-  
   $form = drupal_retrieve_form('aggregator_form_feed', $form_state);
-  
   //var_dump("FORM", $node);
-  $form['title']['#default_value'] = $node->title;
-  $form['url']['#default_value'] = $node->url;
-  $form['refresh']['#default_value'] = $node->refresh;
-  $form['fid'] = array('#type' => 'value', '#value' => $node->fid);
+  if (!empty($node->fid)) {
+    $form['title']['#default_value'] = $node->title;
+    $form['url']['#default_value'] = $node->url;
+    $form['refresh']['#default_value'] = $node->refresh;
+    $form['fid'] = array('#type' => 'value', '#value' => $node->fid);
+  }
   unset($form['submit']);
 
   return $form;
@@ -84,37 +89,47 @@ function feednode_form(&$node) {
  * @param node object to load additional information for
  * @return object with additional fields from feed
  */
-function feednode_load($node) {
-  $info = db_fetch_object(db_query(
-    'SELECT fid FROM {feednode} WHERE nid = %d', $node->nid));
-  $feed = aggregator_feed_load($info->fid);
-  //var_dump("LOAD", $feed);
-  return $feed;
+function feednode_load($nodes) {
+  $result = db_query('SELECT nid, fid FROM {feednode} WHERE nid IN (:nids)', array(
+    ':nids' => array_keys($nodes)
+  )); 
+  foreach ($result as $record) {
+    $feed = aggregator_feed_load($record->fid);
+    //var_dump("LOAD", $feed);
+    $nodes[$record->nid]->fid = $record->fid;
+  }
 }
 
 function _feednode_save($node) {
   //var_dump("SAVE", $node);
-  if (!$node->fid) {
+  if (empty($node->fid)) {
     // check if a feed with this URL is already in the system
-    $feed = db_fetch_object(db_query(
-      "SELECT fid FROM {aggregator_feed} WHERE url = '%s'", $node->url));
-    if ($feed) {
+    $result = db_query(
+      "SELECT fid FROM {aggregator_feed} WHERE url = :url", array(
+      ':url' => $node->url
+    ));
+    foreach ($result as $feed) { 
       $node->fid = $feed->fid;
+      break;
     }
   }
-  aggregator_save_feed(get_object_vars($node));
-
+  $node_as_array = get_object_vars($node);
+  aggregator_save_feed($node_as_array);
+error_log(json_encode($node_as_array));
   if (!isset($node->fid)) {
-    $node->fid = db_last_insert_id('aggregator_feed', 'fid');
+    $node->fid = $node_as_array['fid'];
   }
   db_query(
-    'REPLACE INTO {feednode} (nid,fid) VALUES (%d,%d)', $node->nid, $node->fid);
+    'REPLACE INTO {feednode} (nid,fid) VALUES (:nid,:fid)', array(
+    ':nid' => $node->nid, 
+    ':fid' => $node->fid
+  ));
 
   aggregator_refresh(aggregator_feed_load($node->fid));
 }
 
 /**
- * Implementation of hook_insert
+ * Implements hook_insert
  * @param node object
  */
 function feednode_insert($node) {
@@ -122,7 +137,7 @@ function feednode_insert($node) {
 }
 
 /**
- * Implementation of hook_update
+ * Implements hook_update
  * @param node object
  */
 function feednode_update($node) {
@@ -130,27 +145,30 @@ function feednode_update($node) {
 }
 
 /**
- * Implementation of hook_delete
+ * Implements hook_delete
  * @param node object
  */
 function feednode_delete($node) {
   aggregator_save_feed(array('fid' => $node->fid));
-  db_query('DELETE FROM {feednode} WHERE nid=%d', $node->nid);
+  db_query('DELETE FROM {feednode} WHERE nid=:nid', array(
+    ':nid' => $node->nid
+  ));
 }
 
 /**
- * Implementation of hook_view, add our node specific information
+ * Implements hook_view, add our node specific information
  * @param node object to display
  * @param boolean is this a teaser or full node?
  * @param boolean is this displaying on its own page
  */
 function feednode_view($node, $teaser = FALSE, $page = FALSE) {
-  //var_dump("VIEW", $node);
-  $node = node_prepare($node, $teaser);
+  if (empty($node->fid)) {
+    return $node;
+  }
+  $block = aggregator_block_view('feed-' . $node->fid);
 
-  $block = aggregator_block('view', 'feed-' . $node->fid);
   $node->content['items'] = array(
-    '#value' => $block['content'],
+    '#markup' => $block['content'],
     '#weight' => 1,
   );
 
@@ -158,18 +176,21 @@ function feednode_view($node, $teaser = FALSE, $page = FALSE) {
 }
 
 /**
- * Implementation of hook_user
+ * Implements hook_user
  * Associate an authorqueue with a user for display
  */
-function feednode_user($op, &$edit, &$account, $category = NULL) {
-  switch ($op) {
-    case 'view':
-      $subqueues = nodequeue_load_subqueues_by_reference(array(
-        1 => array($account->uid)));
-      $subqueue = array_shift($subqueues);
-      
-      array_unshift($account->content, 
-        array('#value' => l('Queue bearbeiten»', 'admin/content/nodequeue/1/view/' . $subqueue->sqid)),
-        array('#value' => nodequeue_view_nodes($subqueue->sqid, /*backward*/TRUE, /*teaser*/TRUE)));
+function feednode_user_view($account, $view_mode, $langcode) {
+  global $user;
+  
+  $subqueues = nodequeue_load_subqueues_by_reference(array(
+    1 => array($account->uid)));
+  $subqueue = array_shift($subqueues);
+  
+  if ($account->uid == $user->uid) {
+    $account->content['feednode']['edit_link'] = array(
+      '#markup' => l('Queue bearbeiten»', 'admin/content/nodequeue/1/view/' . $subqueue->sqid)
+    );
   }
+  $account->content['feednode']['nodes'] = 
+    nodequeue_view_nodes($subqueue->sqid, /*backward*/TRUE, /*teaser*/FALSE);
 }

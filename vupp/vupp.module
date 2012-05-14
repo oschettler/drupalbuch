@@ -18,7 +18,20 @@ function vupp_help($path, $arg) {
  * Implements hook_permission().
  */
 function vupp_permission() {
-  return array('view vupp', 'use vupp', 'access vupp statistics', 'administer vupps');
+  return array(
+    'view vupp' => array(
+      'title' => t('View the vote-up widget'),
+    ), 
+    'use vupp' => array(
+      'title' => t('Use the vote-up widget'),
+    ), 
+    'access vupp statistics' => array(
+      'title' => t('Access statistics created by the vote-up widget'),
+    ), 
+    'administer vupps' => array(
+      'title' => t('Administer vote-up widgets'),
+    )
+  );
 }
 
 /**
